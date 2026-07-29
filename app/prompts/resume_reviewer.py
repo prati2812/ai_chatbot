@@ -1,0 +1,3 @@
+"""
+Resume reviewer prompts module.
+"""
