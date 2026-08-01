@@ -1,16 +1,21 @@
-# API routes for chat
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
-from app.schemas.chat import ChatRequest
-from app.services.ollama_service import OllamaService
-from app.core.dependencies import get_ollama_service
+from app.services.chat_service import ChatService
+from app.core.dependencies import get_chat_service
 
 router = APIRouter()
 
+class ChatRequest(BaseModel):
+    message: str 
+
 @router.post("/chat")
-async def chat(request: ChatRequest, ollama_service: OllamaService = Depends(get_ollama_service)):
+async def chat(
+      request: ChatRequest,
+      chat_service: ChatService = Depends(get_chat_service)
+):
     return StreamingResponse(
-        ollama_service.chat(request.message),
-        media_type="application/x-ndjson"
+        chat_service.chat(request.message),
+        media_type="text/plain"
     )

@@ -1,20 +1,15 @@
-# Ollama integration service
 import json
 import httpx
 
 from app.core.config import settings
+from app.providers.base import AIProvider  # Import your base class
 
-class OllamaService:
+class OllamaProvider(AIProvider):
 
-    async def chat(self, message: str):
+    async def chat(self, messages: list[dict]):
         payload = {
             "model": settings.ollama_model,
-            "messages": [
-                {
-                    "role" : "user",
-                    "content" : message
-                }
-            ],
+            "messages": messages,
             "stream" : True
         }
 
