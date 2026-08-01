@@ -8,6 +8,7 @@ from app.core.dependencies import get_chat_service
 router = APIRouter()
 
 class ChatRequest(BaseModel):
+    conversation_id: str
     message: str 
 
 @router.post("/chat")
@@ -15,7 +16,8 @@ async def chat(
       request: ChatRequest,
       chat_service: ChatService = Depends(get_chat_service)
 ):
+    stream_generator = await chat_service.chat(request.conversation_id, request.message)
     return StreamingResponse(
-        chat_service.chat(request.message),
+        stream_generator,
         media_type="text/plain"
     )
