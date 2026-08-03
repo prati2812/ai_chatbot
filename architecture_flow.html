@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Chatbot API Flow & Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #e2e8f0;
+      --accent: #0ea5e9;
+      --accent-dark: #0369a1;
+      --bg: #ffffff;
+      --soft: #f8fafc;
+      --nav-w: 240px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      font-size: 11.5pt;
+      line-height: 1.55;
+    }
+    .layout { display: flex; min-height: 100vh; align-items: flex-start; }
+    nav.toc {
+      position: sticky; top: 0; align-self: flex-start;
+      width: var(--nav-w); flex-shrink: 0; height: 100vh;
+      overflow-y: auto; padding: 20px 14px 32px;
+      background: var(--soft); border-right: 1px solid var(--line);
+      font-size: 9.5pt;
+    }
+    nav.toc .toc-title {
+      font-size: 10pt; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
+    }
+    nav.toc a {
+      display: block; color: var(--ink); text-decoration: none;
+      padding: 5px 8px; border-radius: 4px; margin: 1px 0;
+    }
+    nav.toc a:hover { background: #e2e8f0; color: var(--accent-dark); }
+    nav.toc a.active { background: #e0f2fe; color: var(--accent-dark); font-weight: 600; }
+    nav.toc .toc-group {
+      margin-top: 14px; margin-bottom: 4px; padding: 0 8px;
+      font-size: 8.5pt; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    nav.toc .toc-sub a { padding-left: 16px; font-size: 9pt; color: var(--muted); }
+    main { flex: 1; min-width: 0; padding: 32px 40px 48px; max-width: 980px; }
+    h1 { font-size: 22pt; margin: 0 0 6px; letter-spacing: -0.02em; }
+    h2 {
+      font-size: 14pt; margin: 28px 0 10px; padding-bottom: 6px;
+      border-bottom: 2px solid var(--accent); page-break-after: avoid; scroll-margin-top: 16px;
+    }
+    h3 {
+      font-size: 12pt; margin: 18px 0 8px; color: var(--accent-dark);
+      page-break-after: avoid; scroll-margin-top: 16px;
+    }
+    p, li { color: var(--ink); }
+    .subtitle { color: var(--muted); margin: 0 0 18px; font-size: 11pt; }
+    .meta {
+      display: flex; gap: 16px; flex-wrap: wrap; font-size: 9.5pt;
+      color: var(--muted); margin-bottom: 20px; padding: 10px 14px;
+      background: var(--soft); border-left: 4px solid var(--accent);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 10px 0 16px; page-break-inside: avoid; }
+    th, td { border: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { background: #0f172a; color: #fff; font-weight: 600; }
+    tr:nth-child(even) td { background: var(--soft); }
+    code, .mono {
+      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+      font-size: 9pt; background: #f1f5f9; padding: 1px 5px; border-radius: 3px;
+    }
+    .mermaid {
+      background: var(--soft); border: 1px solid var(--line);
+      border-radius: 8px; padding: 12px 8px; margin: 12px 0 18px;
+      page-break-inside: avoid; text-align: center; overflow-x: auto;
+    }
+    .callout {
+      background: #eff6ff; border: 1px solid #bfdbfe;
+      border-radius: 8px; padding: 12px 14px; margin: 12px 0;
+      font-size: 10.5pt; page-break-inside: avoid;
+    }
+    .tree {
+      font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt;
+      line-height: 1.5; background: var(--soft); border: 1px solid var(--line);
+      border-radius: 8px; padding: 14px 16px; white-space: pre; overflow-x: auto;
+      page-break-inside: avoid;
+    }
+    .tag {
+      display: inline-block; font-size: 8pt; font-weight: 600; padding: 1px 6px;
+      border-radius: 3px; background: #e0f2fe; color: var(--accent-dark); margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="toc" aria-label="API flow navigation">
+      <p class="toc-title">Navigate</p>
+      <a href="#overview">Overview</a>
+      <a href="#folder-structure">Folder Structure</a>
+      <a href="#layer-roles">Layer Roles</a>
+      <a href="#dependency-injection">Dependency Injection</a>
+      <a href="#api-flow">API Flow</a>
+      <a href="#extensibility">Extensibility</a>
+    </nav>
+
+    <main>
+      <h1>AI Chatbot Architecture & API Flow</h1>
+      <p class="subtitle"><code>app/</code> — Modular Python Backend Architecture using FastAPI, Dependency Injection, and the Factory Pattern</p>
+
+      <div class="meta">
+        <span><strong>App:</strong> ai_chatbot</span>
+        <span><strong>Architecture:</strong> Service Repository / Dependency Injection / Strategy Pattern</span>
+        <span><strong>Framework:</strong> FastAPI</span>
+      </div>
+
+      <div class="callout" id="overview">
+        <strong>30-second version:</strong>
+        The application is split into distinct layers. The API endpoints (<code>api/</code>) never directly talk to the language models. They delegate to the <code>ChatService</code>, which uses a <code>PromptBuilder</code> to format the messages. The <code>ChatService</code> then delegates to an abstract <code>AIProvider</code>. At runtime, the <code>ProviderFactory</code> injects the specific implementation (e.g. Ollama, OpenAI) configured in the <code>.env</code> settings.
+      </div>
+
+      <h2 id="folder-structure">1. Folder Map</h2>
+      <p>
+        Modules are grouped by technical responsibility to ensure separation of concerns.
+      </p>
+
+      <div class="tree">app/
+├── api/                           # FastAPI route handlers
+│   └── chat.py                    # Exposes POST /chat endpoint
+│
+├── core/                          # Global configuration and wiring
+│   ├── config.py                  # Pydantic settings & env variables
+│   └── dependencies.py            # FastAPI Depends() injection graph
+│
+├── services/                      # Core business logic
+│   ├── chat_service.py            # Chat orchestration (PromptBuilder + Provider)
+│   └── memory_service.py          # State/history storage for conversations
+│
+├── builders/                      # Prompt construction logic
+│   └── prompt_builder.py          # Combines SYSTEM_PROMPT with user input
+│
+├── prompts/                       # Static prompt templates/personas
+│   ├── general.py
+│   ├── python_tutor.py
+│   ├── resume_reviewer.py
+│   └── sql_assistant.py
+│
+└── providers/                     # LLM integration layer (Strategy Pattern)
+    ├── base.py                    # AIProvider Abstract Base Class
+    ├── factory.py                 # ProviderFactory (instantiates providers)
+    ├── ollama_provider.py         # Ollama specific implementation
+    ├── openai_provider.py         # OpenAI specific implementation
+    └── gemini_provider.py         # Gemini specific implementation</div>
+
+      <div class="mermaid">
+flowchart TB
+  subgraph Network
+    Endpoint[API Route]
+  end
+
+  subgraph Logic
+    Service[ChatService]
+    Memory[MemoryService]
+    Builder[PromptBuilder]
+  end
+
+  subgraph Integration
+    Factory[ProviderFactory]
+    Base[AIProvider]
+    Ollama[OllamaProvider]
+    OpenAI[OpenAIProvider]
+    Gemini[GeminiProvider]
+  end
+
+  Endpoint -->|injected| Service
+  Service --> Memory
+  Service --> Builder
+  Service --> Base
+  Factory -.->|instantiates| Ollama
+  Factory -.->|instantiates| OpenAI
+  Factory -.->|instantiates| Gemini
+  Ollama -.->|implements| Base
+  OpenAI -.->|implements| Base
+  Gemini -.->|implements| Base
+      </div>
+
+      <h2 id="layer-roles">2. Layer Roles</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Layer</th>
+            <th>Location</th>
+            <th>Responsibility</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>API Routes</strong></td>
+            <td><code>api/</code></td>
+            <td>HTTP request parsing, response formatting, route definition. Zero business logic.</td>
+          </tr>
+          <tr>
+            <td><strong>Services</strong></td>
+            <td><code>services/</code></td>
+            <td>Core business orchestration and state management. Connects builders, memory, and providers.</td>
+          </tr>
+          <tr>
+            <td><strong>Builders</strong></td>
+            <td><code>builders/</code></td>
+            <td>Formats and constructs complex message arrays for LLM consumption.</td>
+          </tr>
+          <tr>
+            <td><strong>Prompts</strong></td>
+            <td><code>prompts/</code></td>
+            <td>Storage for system prompts, AI personas, and few-shot examples.</td>
+          </tr>
+          <tr>
+            <td><strong>Providers</strong></td>
+            <td><code>providers/</code></td>
+            <td>HTTP calls to external LLM APIs (Ollama, OpenAI). Converts standard messages into provider-specific payloads.</td>
+          </tr>
+          <tr>
+            <td><strong>Core & Config</strong></td>
+            <td><code>core/</code></td>
+            <td>Environment variables mapping, dependency injection trees, app initialization.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="api-flow">3. API Request/Response Lifecycle</h2>
+      <p>
+        When a user sends a message to the <code>/chat</code> endpoint, the data follows a strict downward flow. Dependencies are resolved before the route even begins executing.
+      </p>
+
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as API Route
+    participant Dep as Dependencies
+    participant Svc as ChatService
+    participant Mem as MemoryService
+    participant Bld as PromptBuilder
+    participant Prov as Provider
+    participant LLM as External Model
+
+    Client->>API: POST chat message
+    
+    Note over API,Dep: Dependency Injection Phase
+    API->>Dep: Depends get_chat_service
+    Dep->>Dep: get_memory_service
+    Dep->>Dep: get_provider
+    Dep->>Dep: get_prompt_builder
+    Dep-->>API: returns ChatService
+    
+    Note over API,Prov: Execution Phase
+    API->>Svc: chat(session_id, message)
+    Svc->>Mem: save_user_message(session_id, message)
+    Svc->>Mem: load_history(session_id)
+    Mem-->>Svc: returns history
+    Svc->>Bld: build(history)
+    Bld-->>Svc: returns messages array
+    Svc->>Prov: chat(messages)
+    
+    Prov->>LLM: stream POST API
+    LLM-->>Prov: stream chunks
+    Prov-->>Svc: yield response text chunks
+    alt Stream Success
+        Svc->>Mem: save_assistant_message(session_id, full_response)
+    else Stream Failed
+        Svc->>Mem: save_assistant_message(session_id, error_status)
+    end
+    Svc-->>API: yield text chunks
+    API-->>Client: StreamingResponse
+      </div>
+
+      <h2 id="dependency-injection">4. Dependency Injection & Factory Pattern</h2>
+      <div class="callout">
+        <strong>The Factory Pattern (<code>factory.py</code>)</strong> guarantees that nothing in the codebase needs to know whether the app is running Ollama, OpenAI, or Gemini, except for the factory itself. 
+        It reads the <code>default_provider</code> from the settings and instantiates the correct class.
+      </div>
+      <p>
+        The <code>dependencies.py</code> file leverages FastAPI's <code>Depends()</code> system to wire the application together. It acts as the <b>composition root</b>:
+      </p>
+      <ul>
+        <li>It calls the Factory to get the correct <code>AIProvider</code> instance.</li>
+        <li>It gets the singleton <code>MemoryService</code>.</li>
+        <li>It creates a <code>PromptBuilder</code> instance.</li>
+        <li>It injects all three into the <code>ChatService</code>.</li>
+        <li>It provides the fully assembled <code>ChatService</code> to the FastAPI route.</li>
+      </ul>
+
+      <h2 id="extensibility">5. How to extend the App</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Goal</th>
+            <th>Action Required</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Add a new AI provider (e.g., Anthropic)</strong></td>
+            <td>Create <code>anthropic_provider.py</code> implementing <code>AIProvider</code>. Add it to the <code>PROVIDERS</code> dictionary in <code>factory.py</code>. Update <code>.env</code> to use it.</td>
+          </tr>
+          <tr>
+            <td><strong>Add a new persona/prompt</strong></td>
+            <td>Create a file in <code>prompts/</code> (e.g., <code>therapist.py</code>). Update <code>prompt_builder.py</code> to dynamically select the prompt based on an argument.</td>
+          </tr>
+          <tr>
+            <td><strong>Persist memory to a Database</strong></td>
+            <td>Update <code>memory_service.py</code> to connect to SQLite/Redis instead of using the in-memory <code>dict</code>. The rest of the app will remain completely unaware of the change.</td>
+          </tr>
+        </tbody>
+      </table>
+
+    </main>
+  </div>
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'base' });
+  </script>
+</body>
+</html>
