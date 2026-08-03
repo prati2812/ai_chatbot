@@ -1,12 +1,14 @@
 from app.providers.base import AIProvider
 from app.builders.prompt_builder import PromptBuilder
 from app.services.memory_service import MemoryService
+from app.services.context_manager import ContextManager
 
 class ChatService:
-    def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService):
+    def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager):
         self.provider = provider
         self.prompt_builder = prompt_builder
         self.memory_service = memory_service
+        self.context_manager = context_manager
         
     async def chat(self, conversation_id: str, user_message: str):
         # 1. Save the new user message to memory FIRST
@@ -14,9 +16,11 @@ class ChatService:
 
         # 2. Load history (which now includes the user's message)
         history = self.memory_service.load_history(conversation_id)
+
+        selected_history = self.context_manager.get_context(history)
         
         # 3. Build the full prompt (system + history)
-        messages = self.prompt_builder.build(history)
+        messages = self.prompt_builder.build(selected_history)
 
         # 4. Stream response from provider
         stream = self.provider.chat(messages)
