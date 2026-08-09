@@ -2,13 +2,19 @@ from app.providers.base import AIProvider
 from app.builders.prompt_builder import PromptBuilder
 from app.services.memory_service import MemoryService
 from app.services.context_manager import ContextManager
+from app.services.token_manager import TokenManager
+from app.parsers.output_parser import OutputParser
+from app.executors.tool_executor import ToolExecutor
 
 class ChatService:
-    def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager):
+    def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager, token_manager: TokenManager, output_parser: OutputParser, tool_executor: ToolExecutor):
         self.provider = provider
         self.prompt_builder = prompt_builder
         self.memory_service = memory_service
         self.context_manager = context_manager
+        self.token_manager = token_manager
+        self.output_parser = output_parser
+        self.tool_executor = tool_executor
         
     async def chat(self, conversation_id: str, user_message: str):
         # 1. Save the new user message to memory FIRST
@@ -22,7 +28,10 @@ class ChatService:
         # 3. Build the full prompt (system + history)
         messages = self.prompt_builder.build(selected_history)
 
-        # 4. Stream response from provider
+        # 4. Prepare messages to fit token limits
+        messages = self.token_manager.prepare(messages)
+
+        # 5. Stream response from provider
         stream = self.provider.chat(messages)
         
         # 5. Intercept the stream to accumulate and save the assistant's message
