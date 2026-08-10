@@ -1,23 +1,15 @@
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.services.chat_service import ChatService
 from app.core.dependencies import get_chat_service
+from app.schemas.chat import ChatRequest
 
 router = APIRouter()
-
-class ChatRequest(BaseModel):
-    conversation_id: str
-    message: str 
-
 @router.post("/chat")
 async def chat(
       request: ChatRequest,
       chat_service: ChatService = Depends(get_chat_service)
 ):
-    stream_generator = await chat_service.chat(request.conversation_id, request.message)
-    return StreamingResponse(
-        stream_generator,
-        media_type="text/plain"
-    )
+    response = await chat_service.chat(request.conversation_id, request.message)
+    return {"response": response}

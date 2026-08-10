@@ -32,57 +32,48 @@ class ChatService:
         # 4. Prepare messages to fit token limits
         messages = self.token_manager.prepare(messages)
 
-        # 5. Intercept the stream to accumulate and handle tools
-        async def stream_and_save(current_messages):
-            full_response = ""
-            schemas = ToolFactory.get_all_schemas()
-            stream = self.provider.chat(current_messages, tools=schemas)
-            
-            try:
-                async for chunk in stream:
-                    if chunk["type"] == "text":
-                        content = chunk["content"]
-                        full_response += content
-                        yield content
-                    elif chunk["type"] == "tool_call":
-                        tool_calls = chunk["calls"]
-                        
-                        # Add the assistant's tool request to history
-                        current_messages.append({
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": tool_calls
-                        })
-                        
-                        # Execute each tool call
-                        for call in tool_calls:
-                            tool_name = call["function"]["name"]
-                            arguments = call["function"]["arguments"]
-                            
-                            result = await self.tool_executor.execute(tool_name, arguments)
-                            
-                            # Add tool result to history
-                            # Depending on the provider, "role": "tool" might be required
-                            current_messages.append({
-                                "role": "tool",
-                                "content": str(result),
-                                "name": tool_name
-                            })
-                            
-                        # Recursively call the provider with updated context
-                        async for new_chunk in stream_and_save(current_messages):
-                            yield new_chunk
-                            
-                        # Important: return here so we don't save a partial assistant message
-                        return
-                
-                # 6. Save successful assistant message if we got text
-                if full_response:
-                    self.memory_service.save_assistant_message(conversation_id, full_response)
-            except Exception as e:
-                # 7. If failed, save failure status
-                error_msg = f"[System Error: {str(e)}]"
-                self.memory_service.save_assistant_message(conversation_id, error_msg)
-                raise e
+        tools = ToolFactory.get_all_schemas()
+        max_iterations = 5
 
-        return stream_and_save(messages)
+        for _ in range(max_iterations):
+
+            response = await self.provider.chat(
+                messages=messages,
+                tools=tools
+            )
+
+            message = response["message"]
+            tool_calls = message.get("tool_calls", [])
+
+            # No tool requested
+            if not tool_calls:
+                final_answer = message.get("content", "")
+                
+                self.memory_service.save_assistant_message(
+                    conversation_id,
+                    final_answer
+                )
+
+                return final_answer
+
+            # Model requested one or more tools
+            messages.append(message)
+
+            for tool_call in tool_calls:
+                function = tool_call["function"]
+                tool_name = function["name"]
+                arguments = function["arguments"]
+
+                # Ensure we await the async tool executor
+                result = await self.tool_executor.execute(
+                    tool_name,
+                    arguments
+                )
+
+                messages.append({
+                    "role": "tool",
+                    "content": result,
+                    "name": tool_name
+                })
+
+        return "Maximum tool-call iterations reached."
