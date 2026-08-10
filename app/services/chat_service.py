@@ -6,6 +6,7 @@ from app.services.token_manager import TokenManager
 from app.parsers.output_parser import OutputParser
 from app.executors.tool_executor import ToolExecutor
 from app.tools.factory import ToolFactory
+from app.core.config import settings
 
 class ChatService:
     def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager, token_manager: TokenManager, output_parser: OutputParser, tool_executor: ToolExecutor):
@@ -26,13 +27,14 @@ class ChatService:
 
         selected_history = self.context_manager.get_context(history)
         
+        tools = ToolFactory.get_all_schemas()
+
         # 3. Build the full prompt (system + history)
-        messages = self.prompt_builder.build(selected_history)
+        messages = self.prompt_builder.build(selected_history, tools=tools)
 
         # 4. Prepare messages to fit token limits
         messages = self.token_manager.prepare(messages)
 
-        tools = ToolFactory.get_all_schemas()
         max_iterations = 5
 
         for _ in range(max_iterations):
@@ -41,6 +43,15 @@ class ChatService:
                 messages=messages,
                 tools=tools
             )
+
+            if not settings.use_native_tools:
+                raw_content = response["message"].get("content", "")
+                parsed = self.output_parser.parse(raw_content)
+                if parsed["type"] == "tool_call":
+                    response["message"]["tool_calls"] = parsed["calls"]
+                    response["message"]["content"] = ""
+                else:
+                    response["message"]["content"] = parsed["content"]
 
             message = response["message"]
             tool_calls = message.get("tool_calls", [])

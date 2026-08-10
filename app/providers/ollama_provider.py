@@ -13,7 +13,7 @@ class OllamaProvider(AIProvider):
             "stream" : False
         }
         
-        if tools:
+        if tools and settings.use_native_tools:
             payload["tools"] = tools
 
         async with httpx.AsyncClient(timeout=60.0) as client:
