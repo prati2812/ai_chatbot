@@ -5,6 +5,7 @@ from app.services.context_manager import ContextManager
 from app.services.token_manager import TokenManager
 from app.parsers.output_parser import OutputParser
 from app.executors.tool_executor import ToolExecutor
+from app.tools.factory import ToolFactory
 
 class ChatService:
     def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager, token_manager: TokenManager, output_parser: OutputParser, tool_executor: ToolExecutor):
@@ -31,23 +32,57 @@ class ChatService:
         # 4. Prepare messages to fit token limits
         messages = self.token_manager.prepare(messages)
 
-        # 5. Stream response from provider
-        stream = self.provider.chat(messages)
-        
-        # 5. Intercept the stream to accumulate and save the assistant's message
-        async def stream_and_save():
+        # 5. Intercept the stream to accumulate and handle tools
+        async def stream_and_save(current_messages):
             full_response = ""
+            schemas = ToolFactory.get_all_schemas()
+            stream = self.provider.chat(current_messages, tools=schemas)
+            
             try:
                 async for chunk in stream:
-                    full_response += chunk
-                    yield chunk
+                    if chunk["type"] == "text":
+                        content = chunk["content"]
+                        full_response += content
+                        yield content
+                    elif chunk["type"] == "tool_call":
+                        tool_calls = chunk["calls"]
+                        
+                        # Add the assistant's tool request to history
+                        current_messages.append({
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": tool_calls
+                        })
+                        
+                        # Execute each tool call
+                        for call in tool_calls:
+                            tool_name = call["function"]["name"]
+                            arguments = call["function"]["arguments"]
+                            
+                            result = await self.tool_executor.execute(tool_name, arguments)
+                            
+                            # Add tool result to history
+                            # Depending on the provider, "role": "tool" might be required
+                            current_messages.append({
+                                "role": "tool",
+                                "content": str(result),
+                                "name": tool_name
+                            })
+                            
+                        # Recursively call the provider with updated context
+                        async for new_chunk in stream_and_save(current_messages):
+                            yield new_chunk
+                            
+                        # Important: return here so we don't save a partial assistant message
+                        return
                 
-                # 6. Save successful assistant message
-                self.memory_service.save_assistant_message(conversation_id, full_response)
+                # 6. Save successful assistant message if we got text
+                if full_response:
+                    self.memory_service.save_assistant_message(conversation_id, full_response)
             except Exception as e:
                 # 7. If failed, save failure status
                 error_msg = f"[System Error: {str(e)}]"
                 self.memory_service.save_assistant_message(conversation_id, error_msg)
                 raise e
 
-        return stream_and_save()
+        return stream_and_save(messages)
