@@ -108,6 +108,8 @@
       <a href="#dependency-injection">Dependency Injection</a>
       <a href="#api-flow">API Flow</a>
       <a href="#extensibility">Extensibility</a>
+      <a href="#recent-upgrades">Recent Architectural Upgrades</a>
+      <a href="#unified-architecture">Unified Architecture Flow</a>
     </nav>
 
     <main>
@@ -140,10 +142,29 @@
 │
 ├── services/                      # Core business logic
 │   ├── chat_service.py            # Chat orchestration (PromptBuilder + Provider)
+│   ├── context_manager.py         # Windowed history compression
+│   ├── token_manager.py           # Token counting and limits
 │   └── memory_service.py          # State/history storage for conversations
 │
+├── events/                        # Application event models
+│   └── stream_event.py            # Decouples service events from HTTP SSE
+│
 ├── builders/                      # Prompt construction logic
-│   └── prompt_builder.py          # Combines SYSTEM_PROMPT with user input
+│   └── prompt_builder.py          # Combines SYSTEM_PROMPT with user input and tool JSONs
+│
+├── parsers/                       # LLM output parsing
+│   └── output_parser.py           # Regex parser for ReAct @@TOOL_CALL@@ tags
+│
+├── tools/                         # Executable tools and schema generation
+│   ├── base.py                    # BaseTool abstract class
+│   ├── calculator.py              # Mathematical tool implementation
+│   └── factory.py                 # ToolFactory
+│
+├── executors/                     # Tool orchestration
+│   └── tool_executor.py           # 9-step strict validation & execution pipeline
+│
+├── schemas/                       # Pydantic payload models
+│   └── chat.py
 │
 ├── prompts/                       # Static prompt templates/personas
 │   ├── general.py
@@ -319,6 +340,125 @@ sequenceDiagram
           </tr>
         </tbody>
       </table>
+
+      <h2 id="recent-upgrades">6. Recent Architectural Upgrades</h2>
+      <p>The system recently underwent massive upgrades to support agentic capabilities, streaming, and tool execution while remaining fully provider-agnostic.</p>
+
+      <h3>A. Context & Token Management</h3>
+      <p>
+        The <code>TokenManager</code> and <code>ContextManager</code> intercept the prompt before it hits the LLM. 
+        They compress chat history using sliding windows and ensure the final payload strictly adheres to the model's context limits (e.g., preventing token overflow errors).
+      </p>
+
+      <h3>B. Hybrid Tool Calling (ReAct vs Native)</h3>
+      <p>
+        Because some local models (like <code>llama3</code>) lack native JSON tool-calling, the architecture implements a dual-strategy approach controlled by <code>USE_NATIVE_TOOLS</code>.
+      </p>
+      <ul>
+        <li><strong>Native Mode</strong>: <code>OllamaProvider</code> forwards the tool JSON schemas directly to the LLM and processes native tool-call streams.</li>
+        <li><strong>ReAct Fallback Mode</strong>: <code>PromptBuilder</code> injects formatting instructions (<code>@@TOOL_CALL@@</code>) into the system prompt. The <code>OutputParser</code> parses these tags out of the raw text and converts them into the exact same payload structure, making the orchestrator completely oblivious to the LLM's limitations.</li>
+      </ul>
+
+      <h3>C. The 9-Step Tool Executor Pipeline</h3>
+      <p>
+        Tools are never executed blindly. The <code>ToolExecutor</code> runs a strict 9-step security and validation pipeline before executing any tool requested by the LLM:
+      </p>
+      <ol>
+        <li>Apply Execution Limits (prevents infinite loops)</li>
+        <li>Resolve Tool (via <code>ToolFactory</code>)</li>
+        <li>Check Authorization (validates against a whitelist)</li>
+        <li>Validate Arguments (using <code>jsonschema</code>)</li>
+        <li>Apply Timeouts (via <code>asyncio.wait_for</code>)</li>
+        <li>Execute Code</li>
+        <li>Validate Result</li>
+        <li>Normalize Result (returns standard JSON payloads for both success and errors)</li>
+        <li>Return to LLM</li>
+      </ol>
+
+      <h3>D. Event-Driven Streaming</h3>
+      <p>
+        The <code>StreamEvent</code> dataclass decouples core business logic from HTTP implementations. The <code>OllamaProvider</code> yields <code>StreamEvent</code> chunks. The <code>ChatService</code> consumes them, quietly executes tools in the background, and seamlessly passes the text events up to the API layer, which transforms them into <code>text/event-stream</code> Server-Sent Events (SSE) for the user interface.
+      </p>
+
+      <h2 id="unified-architecture">7. Unified Project Architecture</h2>
+      <p>
+        The culmination of these systems is a highly scalable, enterprise-ready AI architecture capable of orchestrating complex agentic workflows, securely interacting with external systems via MCP, and streaming responses to the user in real-time.
+      </p>
+
+      <div class="mermaid">
+flowchart TB
+  %% Core API Layer
+  Client([Web/Mobile Client])
+  API[FastAPI SSE Route]
+
+  %% Domain Logic
+  Workspace[AI Workspace / App]
+  ChatService[ChatService Orchestrator]
+  
+  %% State & Memory
+  subgraph Pre-Processing
+    Mem[MemoryService]
+    Ctx[ContextManager]
+    Tokens[TokenManager]
+    Prompt[PromptBuilder]
+  end
+
+  %% Providers
+  subgraph Model Providers
+    Ollama[OllamaProvider]
+    OpenAI[OpenAIProvider]
+    Gemini[GeminiProvider]
+  end
+
+  %% Tools
+  subgraph Tool Calling Pipeline
+    Executor[ToolExecutor 9-Step Pipeline]
+    Factory[ToolFactory]
+    
+    subgraph Execution Targets
+      Local[Local Native Tools]
+      MCP[MCP Client Proxy]
+    end
+    
+    Local_Calc[Calculator]
+    Local_SQL[SQL Database]
+    
+    MCP_Servers[External MCP Servers]
+    MCP_Git[GitHub]
+    MCP_Files[Local Files]
+  end
+
+  %% The Flow
+  Client <-->|HTTP Streaming| API
+  API <-->|StreamEvents| Workspace
+  Workspace <--> ChatService
+  
+  ChatService --> Mem
+  Mem --> Ctx
+  Ctx --> Prompt
+  Prompt --> Tokens
+  Tokens -->|Final Payload| Ollama
+  
+  ChatService -.->|Injected by Factory| Ollama
+  ChatService -.->|Injected by Factory| OpenAI
+  ChatService -.->|Injected by Factory| Gemini
+  
+  Ollama -->|StreamEvent tool_call| Executor
+  Executor --> Factory
+  Factory --> Local
+  Factory --> MCP
+  
+  Local --> Local_Calc
+  Local --> Local_SQL
+  
+  MCP --> MCP_Servers
+  MCP_Servers --> MCP_Git
+  MCP_Servers --> MCP_Files
+  
+  Local_Calc -->|Normalized JSON Result| Executor
+  MCP_Git -->|Normalized JSON Result| Executor
+  Executor -->|Appended to History| ChatService
+      </div>
 
     </main>
   </div>

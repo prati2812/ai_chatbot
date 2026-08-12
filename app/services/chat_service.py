@@ -7,7 +7,9 @@ from app.parsers.output_parser import OutputParser
 from app.executors.tool_executor import ToolExecutor
 from app.tools.factory import ToolFactory
 from app.core.config import settings
-
+from typing import AsyncGenerator
+import json
+from app.events.stream_event import StreamEvent
 class ChatService:
     def __init__(self, provider: AIProvider, prompt_builder: PromptBuilder, memory_service: MemoryService, context_manager: ContextManager, token_manager: TokenManager, output_parser: OutputParser, tool_executor: ToolExecutor):
         self.provider = provider
@@ -18,7 +20,7 @@ class ChatService:
         self.output_parser = output_parser
         self.tool_executor = tool_executor
         
-    async def chat(self, conversation_id: str, user_message: str):
+    async def chat(self, conversation_id: str, user_message: str) -> AsyncGenerator[StreamEvent, None]:
         # 1. Save the new user message to memory FIRST
         self.memory_service.save_user_message(conversation_id, user_message)
 
@@ -39,41 +41,60 @@ class ChatService:
 
         for _ in range(max_iterations):
 
-            response = await self.provider.chat(
+            tool_calls = []
+            full_text = ""
+
+            events = self.provider.chat(
                 messages=messages,
                 tools=tools
             )
 
             if not settings.use_native_tools:
-                raw_content = response["message"].get("content", "")
-                parsed = self.output_parser.parse(raw_content)
-                if parsed["type"] == "tool_call":
-                    response["message"]["tool_calls"] = parsed["calls"]
-                    response["message"]["content"] = ""
-                else:
-                    response["message"]["content"] = parsed["content"]
-
-            message = response["message"]
-            tool_calls = message.get("tool_calls", [])
+                # ReAct fallback path
+                async for event in events:
+                    if event.type == "text":
+                        raw_content = event.content or ""
+                        parsed = self.output_parser.parse(raw_content)
+                        
+                        if parsed["type"] == "tool_call":
+                            tool_calls.extend([c["function"] for c in parsed["calls"]])
+                        else:
+                            full_text += parsed["content"]
+                            yield StreamEvent(type="text", data=parsed["content"])
+            else:
+                # Native streaming path
+                async for event in events:
+                    if event.type == "text":
+                        if event.content:
+                            full_text += event.content
+                            yield StreamEvent(type="text", data=event.content)
+                    elif event.type == "tool_call":
+                        tool_calls.append(event.tool_call["function"])
 
             # No tool requested
             if not tool_calls:
-                final_answer = message.get("content", "")
-                
                 self.memory_service.save_assistant_message(
                     conversation_id,
-                    final_answer
+                    full_text
                 )
-
-                return final_answer
+                return
 
             # Model requested one or more tools
-            messages.append(message)
+            messages.append({
+                "role": "assistant",
+                "content": full_text,
+                "tool_calls": [{"type": "function", "function": tc} for tc in tool_calls]
+            })
 
             for tool_call in tool_calls:
-                function = tool_call["function"]
-                tool_name = function["name"]
-                arguments = function["arguments"]
+                tool_name = tool_call["name"]
+                arguments = tool_call["arguments"]
+                
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        pass
 
                 # Ensure we await the async tool executor
                 result = await self.tool_executor.execute(
@@ -87,4 +108,4 @@ class ChatService:
                     "name": tool_name
                 })
 
-        return "Maximum tool-call iterations reached."
+        yield StreamEvent(type="done", data="Maximum tool-call iterations reached.")
