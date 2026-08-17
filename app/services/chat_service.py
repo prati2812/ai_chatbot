@@ -29,7 +29,7 @@ class ChatService:
 
         selected_history = self.context_manager.get_context(history)
         
-        tools = ToolFactory.get_all_schemas()
+        tools = await ToolFactory.get_all_schemas()
 
         # 3. Build the full prompt (system + history)
         messages = self.prompt_builder.build(selected_history, tools=tools)
